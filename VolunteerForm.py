@@ -1,5 +1,7 @@
 import os
 import discord
+import meshcore
+import asyncio
 from discord.ext import commands
 
 from email_validator import validate_email
@@ -23,6 +25,7 @@ intents.guilds = True
 client = commands.Bot(command_prefix="!", intents=intents)
 
 client.volunteerID = 0
+client.messageBuffer = ()
 
 @client.event
 async def on_ready():
@@ -75,13 +78,13 @@ class VolunteerForm(discord.ui.Modal, title="Volunteer Form"):
         client.volunteerID += 1
         # You can store or process responses here
         with open(VOLUNTEER_CSV, 'a') as f:
-            f.write(f"{client.volunteerID},{self.name.value},{interaction.user.id},{phone_number},{self.email.value}\n")
+            f.write(f"{client.volunteerID},{self.name.value},{interaction.user.id},{phone_number},{self.email.value},0,0\n")
         with open(SUBMITTED_TXT, 'a') as f:
             f.write(f"{interaction.user.id}\n")
         
         
 
-@client.command()
+@client.command(help="Creates a button that opens the volunteer form", name="form")
 async def form(ctx):
     await ctx.send("Click the button to fill out the form", view=FormButton())
 
@@ -89,5 +92,21 @@ class FormButton(discord.ui.View):
     @discord.ui.button(label="Open Form", style=discord.ButtonStyle.primary)
     async def open_form(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(VolunteerForm())
+
+@client.event
+async def on_message(message):
+    if message.author == client.user:
+        return
+    
+    client.messageBuffer.append((message.author, message.created_at ,message.content))
+
+    await client.process_commands(message)
+
+#async def meshcore_loop():
+#    meshcore = 
+#    while True:
+#        
+#
+#       await asyncio.sleep(10)
 
 client.run(TOKEN)
