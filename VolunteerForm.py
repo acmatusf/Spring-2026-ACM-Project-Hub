@@ -25,7 +25,8 @@ intents.guilds = True
 client = commands.Bot(command_prefix="!", intents=intents)
 
 client.volunteerID = 0
-client.messageBuffer = ()
+client.messageBuffer = []
+client.mesBufferLock = asyncio.Lock()
 
 @client.event
 async def on_ready():
@@ -43,6 +44,8 @@ async def on_ready():
         f'{client.user} has connected to the following guild:\n'
         f'{guild.name}(id: {guild.id})'
     )
+
+    asyncio.create_task(meshcore_loop())
 
 class VolunteerForm(discord.ui.Modal, title="Volunteer Form"):
     name = discord.ui.TextInput(label="Full Name")
@@ -95,18 +98,51 @@ class FormButton(discord.ui.View):
 
 @client.event
 async def on_message(message):
+    #ignore mesages from self
     if message.author == client.user:
         return
-    
-    client.messageBuffer.append((message.author, message.created_at ,message.content))
+    #process commands first to avoid conflicts with message buffer
+    if message.content.startswith("!"):
+        await client.process_commands(message)
+        return
+
+    await client.mesBufferLock.acquire()
+    try:
+        client.messageBuffer.append((message.author, message.created_at ,message.content))
+    finally:
+        client.mesBufferLock.release()
+
 
     await client.process_commands(message)
 
-#async def meshcore_loop():
-#    meshcore = 
-#    while True:
-#        
-#
-#       await asyncio.sleep(10)
+async def meshcore_loop():
+    #device = await meshcore.MeshCore.create_ble()
+    device = await meshcore.MeshCore.create_serial("COM7")
+    print("Connected to MeshCore device")
+
+    while True:
+        result = await device.commands.get_contacts()
+        if result.type == meshcore.EventType.ERROR:
+            print(f"Error getting contacts: {result.error}")
+            continue
+        
+        contacts = result.payload
+        if contacts:
+            contact = next(iter(contacts.items()))[1]
+            #await device.commands.send_msg(contact, f"Connection Found")
+            await client.mesBufferLock.acquire()
+            try:
+                #send all messages in buffer
+                for message in client.messageBuffer:
+                    result = await device.commands.send_msg(contact, f"{message[0]} at {message[1]}: {message[2]}")
+                    if result.type == meshcore.EventType.ERROR:
+                        print(f"Error sending message: {result.payload}")
+                #empty buffer after sending
+                client.messageBuffer = []
+            finally:
+                client.mesBufferLock.release()
+            #empty buffer and send to meshcore
+
+        await asyncio.sleep(10)
 
 client.run(TOKEN)
